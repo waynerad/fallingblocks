@@ -7,6 +7,8 @@
 <script src="mt19937class.js" ></script>
 <script>
 
+// Copyright (C) 2015 by Wayne Radinsy
+
 /*jslint browser: true, devel: true, passfail: true */
 /*global MersenneTwister19937 */
 
@@ -86,18 +88,19 @@ function getRando(seedNum) {
     return mt1;
 }
 
-var gBlockSizePixelsX, gBlockSizePixelsY, gBlocksAcross, gBlocksDown, gRng, gBlackCol, gSaturateCol, gBlockCount, gBlockRelX, gBlockRelY, gBlockColor, gSquareColor, gInPlay;
+var gBlockSizePixelsX, gBlockSizePixelsY, gBlocksAcross, gBlocksDown, gRng, gBlackCol, gSaturateCol, gEmptyColor, gBlockCount, gBlockRelX, gBlockRelY, gBlockColor, gSquareColor, gInPlay, gCountdown, gPieceX, gPieceY, gCurrentGoodness, gSlowSpeed, gFastSpeed, gSlowLog, gFastLog, gCurrentSpeed, gCurrentPieceSize;
 
 gBlockSizePixelsX = 40;
 gBlockSizePixelsY = 40;
 
 gBlocksAcross = 8;
-gBlocksDown = 10;
+gBlocksDown = 12;
 
 gRng = getRando(0);
 
 gBlackCol = 0;
 gSaturateCol = 0;
+gEmptyColor = "rgb(255, 255, 255)";
 
 gBlockCount = 0;
 gBlockRelX = [];
@@ -105,7 +108,23 @@ gBlockRelY = [];
 gBlockColor = [];
 
 gSquareColor = [];
+
 gInPlay = false;
+gCountdown = 5;
+
+gPieceX = 0;
+gPieceY = 0;
+
+gCurrentGoodness = 0;
+
+gSlowSpeed = 5000;
+gFastSpeed = 100;
+
+gSlowLog = Math.log(gSlowSpeed);
+gFastLog = Math.log(gFastSpeed);
+
+gCurrentSpeed = gSlowSpeed;
+gCurrentPieceSize = 4;
 
 function drawBlock(x, y, color) {
     "use strict";
@@ -113,12 +132,12 @@ function drawBlock(x, y, color) {
     canvas = document.getElementById("gamebox");
     ctx = canvas.getContext("2d");
     ctx.fillStyle = color;
-    ctx.fillRect(x * gBlockSizePixelsX, y * gBlockSizePixelsY, gBlockSizePixelsX, gBlockSizePixelsY);
+    ctx.fillRect((x * gBlockSizePixelsX) + 1, (y * gBlockSizePixelsY) + 1, gBlockSizePixelsX - 1, gBlockSizePixelsY - 1);
 }
 
 function eraseBlock(x, y) {
     "use strict";
-    drawBlock(x, y, "rgb(255, 255, 255)");
+    drawBlock(x, y, gEmptyColor);
 }
 
 function generateColor(blackCol, saturateCol) {
@@ -275,22 +294,348 @@ function redrawBoard() {
     }
 }
 
+function clearBoard() {
+    "use strict";
+    var x, y;
+
+    for (y = 0; y < gBlocksDown; y = y + 1) {
+        for (x = 0; x < gBlocksAcross; x = x + 1) {
+            gSquareColor[y * gBlocksAcross + x] = gEmptyColor;
+        }
+    }
+}
+
+function detectCollision(x, y) {
+    "use strict";
+    var i;
+
+    // return codes:
+    // 0 == no collision
+    // 1 == colission with game border
+    // 2 == collision with another piece
+    for (i = 0; i < gBlockCount; i = i + 1) {
+        if ((gBlockRelY[i] + y) < 0) {
+            return 1;
+        }
+        if ((gBlockRelY[i] + y) >= gBlocksDown) {
+            return 1;
+        }
+        if ((gBlockRelX[i] + x) < 0) {
+            return 1;
+        }
+        if ((gBlockRelX[i] + x) >= gBlocksAcross) {
+            return 1;
+        }
+        if (gSquareColor[(gBlockRelY[i] + y) * gBlocksAcross + (gBlockRelX[i] + x)] !== gEmptyColor) {
+            // weird way to test for an empty square, but whatever
+            return 2;
+        }
+    }
+    return 0;
+}
+
+function findInitialPositionForPiece() {
+    "use strict";
+    var minY, i, center, offset;
+
+    // first push it down until whole thing is visible
+    minY = gBlockRelY[0];
+    for (i = 1; i < gBlockCount; i = i + 1) {
+        if (gBlockRelY[i] < minY) {
+            minY = gBlockRelY[i];
+        }
+    }
+    gPieceY = -minY;
+
+    // then start in the center and find a place where it fits
+    center = Math.floor(gBlocksAcross / 2);
+    offset = 0;
+    while (offset <= center) {
+        if (detectCollision(center - offset, gPieceY) === 0) {
+            gPieceX = center - offset;
+            return true;
+        }
+        if (detectCollision(center + offset, gPieceY) === 0) {
+            gPieceX = center + offset;
+            return true;
+        }
+        offset = offset + 1;
+    }
+    return false;
+}
+
+function drawPiece() {
+    "use strict";
+    var i;
+
+    for (i = 0; i < gBlockCount; i = i + 1) {
+        drawBlock(gBlockRelX[i] + gPieceX, gBlockRelY[i] + gPieceY, gBlockColor[i]);
+    }
+}
+
+function erasePiece() {
+    "use strict";
+    var i;
+
+    for (i = 0; i < gBlockCount; i = i + 1) {
+        drawBlock(gBlockRelX[i] + gPieceX, gBlockRelY[i] + gPieceY, gEmptyColor);
+    }
+}
+
+function newPiece() {
+    "use strict";
+    var pieceSize;
+
+    pieceSize = gCurrentPieceSize;
+    createPiece(pieceSize);
+    while (findInitialPositionForPiece() === false) {
+        pieceSize = pieceSize - 1;
+        createPiece(pieceSize);
+    }
+    drawPiece();
+}
+
+function removeCompleteLines() {
+    "use strict";
+    var y, lineIsComplete, offset, x, lry, position;
+
+    for (y = 0; y < gBlocksDown; y = y + 1) {
+        lineIsComplete = true;
+        offset = y * gBlocksAcross;
+        for (x = 0; x < gBlocksAcross; x = x + 1) {
+            if (gSquareColor[offset + x] === gEmptyColor) {
+                lineIsComplete = false;
+            }
+        }
+        if (lineIsComplete) {
+            for (x = 0; x < gBlocksAcross; x = x + 1) {
+                for (lry = y; lry > 0; lry = lry - 1) {
+                    position = (lry * gBlocksAcross) + x;
+                    gSquareColor[position] = gSquareColor[position - gBlocksAcross];
+                }
+                gSquareColor[x] = gEmptyColor;
+            }
+        }
+    }
+}
+
+var timerCallback;
+
+function findTopGoodness() {
+    "use strict";
+    var y, offset, x;
+
+    for (y = 0; y < gBlocksDown; y = y + 1) {
+        offset = y * gBlocksAcross;
+        for (x = 0; x < gBlocksAcross; x = x + 1) {
+            if (gSquareColor[offset + x] !== gEmptyColor) {
+                return y / gBlocksDown;
+            }
+        }
+    }
+    return 1; // 100% if we're clear to the bottom
+}
+
+function findBottomGoodness() {
+    "use strict";
+    var x, y, maxY;
+
+    maxY = 0;
+    for (x = 0; x < gBlocksAcross; x = x + 1) {
+        for (y = 0; y < gBlocksDown; y = y + 1) {
+            if (gSquareColor[(y * gBlocksAcross) + x] === gEmptyColor) {
+                if (y > maxY) {
+                    maxY = y;
+                }
+            } else {
+                y = gBlocksDown; // break loop
+            }
+        }
+    }
+    return maxY / gBlocksDown;
+}
+
+function findGoodness() {
+    "use strict";
+
+    return (findTopGoodness() + findBottomGoodness()) / 2;
+}
+
+function adjustDifficulty() {
+    "use strict";
+    var goodness, piecelimit;
+
+    goodness = findGoodness();
+    // speed up slowly; slow down quickly
+    if (gCurrentGoodness < goodness) {
+        // increasing goodness; change slowly
+        gCurrentGoodness = (gCurrentGoodness * 0.96) + (goodness * 0.04);
+    } else {
+        // decreasing goodness; change quickly
+        gCurrentGoodness = (gCurrentGoodness * 0.85) + (goodness * 0.15);
+    }
+
+    gCurrentSpeed = Math.exp(((gSlowLog - gFastLog) * (1 - gCurrentGoodness)) + gFastLog);
+    if (Math.floor(gRng.genrandReal2() * 3) === 0) {
+        gCurrentPieceSize = Math.floor(gRng.genrandReal2() * 5) + 1;
+    } else {
+        piecelimit = (goodness * 5) + 1;
+        gCurrentPieceSize = Math.floor(piecelimit);
+    }
+}
+
+function playGame() {
+    "use strict";
+    var i;
+
+    // if we can't move down, we transfer the piece to the board
+    if (detectCollision(gPieceX, gPieceY + 1) === 0) {
+        erasePiece();
+        gPieceY = gPieceY + 1;
+        drawPiece();
+        adjustDifficulty();
+        window.setTimeout(timerCallback, gCurrentSpeed);
+        return;
+    }
+    for (i = 0; i < gBlockCount; i = i + 1) {
+        gSquareColor[(gBlockRelY[i] + gPieceY) * gBlocksAcross + (gBlockRelX[i] + gPieceX)] = gBlockColor[i];
+    }
+    removeCompleteLines();
+    redrawBoard();
+    newPiece();
+    adjustDifficulty();
+    window.setTimeout(timerCallback, gCurrentSpeed);
+}
+
+timerCallback = function () {
+    "use strict";
+
+    if (gInPlay) {
+        playGame();
+    } else {
+        gCountdown = gCountdown - 1;
+        if (gCountdown > 0) {
+            scrambleBoard();
+            window.setTimeout(timerCallback, 100);
+        } else {
+            clearBoard();
+            gInPlay = true;
+            redrawBoard();
+            newPiece();
+            window.setTimeout(timerCallback, 1000);
+        }
+    }
+};
+
+function rotatePiece(a, b) {
+    "use strict";
+    var i, newX, newY;
+
+    // (y+ix)(a+bi)
+    // = ay + ixa + biy + biix
+    // = ay-bx + (xa+by)i
+    for (i = 0; i < gBlockCount; i = i + 1) {
+        newY = a * gBlockRelY[i] - b * gBlockRelX[i];
+        newX = a * gBlockRelX[i] + b * gBlockRelY[i];
+        gBlockRelY[i] = newY;
+        gBlockRelX[i] = newX;
+    }
+}
+
+function keyDown(event) {
+    "use strict";
+    var key, movePiece, newX, newY, placeNotFound, down;
+
+    event.stopPropagation();
+
+    movePiece = false;
+    newX = gPieceX;
+    newY = gPieceY;
+
+    key = event.keyCode;
+    switch (key) {
+    case 37:
+        // left
+        if (detectCollision(gPieceX - 1, gPieceY) === 0) {
+            movePiece = true;
+            newX = gPieceX - 1;
+        }
+        break;
+    case 38:
+        // up
+        // This is a little nutty. We rotate the piece, see if it collides with anything, if it does we rotate back. If it doesn't, we still rotate back to erase it, then rotate it again, then draw it again.
+        rotatePiece(0, 1);
+        placeNotFound = true;
+        down = 0; // we allow the piece to move down to rotate it, but not up. we allow 1-piece moves left or right.
+        while (placeNotFound && (down < 4)) {
+            if (detectCollision(gPieceX, gPieceY + down) === 0) {
+                newX = gPieceX;
+                newY = gPieceY + down;
+                placeNotFound = false;
+            } else {
+                if (detectCollision(gPieceX + 1, gPieceY) === 0) {
+                    newX = gPieceX + 1;
+                    newY = gPieceY + down;
+                    placeNotFound = false;
+                } else {
+                    if (detectCollision(gPieceX - 1, gPieceY) === 0) {
+                        newX = gPieceX - 1;
+                        newY = gPieceY + down;
+                        placeNotFound = false;
+                    }
+                }
+            }
+            down = down + 1;
+        }
+        if (placeNotFound) {
+            rotatePiece(0, -1); // just return to original
+        } else {
+            rotatePiece(0, -1);
+            erasePiece();
+            rotatePiece(0, 1);
+            gPieceX = newX;
+            gPieceY = newY;
+            drawPiece();
+        }
+        break;
+    case 39:
+        // right
+        if (detectCollision(gPieceX + 1, gPieceY) === 0) {
+            movePiece = true;
+            newX = gPieceX + 1;
+        }
+        break;
+    case 40:
+        // down
+        if (detectCollision(gPieceX, gPieceY + 1) === 0) {
+            movePiece = true;
+            newY = gPieceY + 1;
+        }
+        break;
+    }
+    if (movePiece) {
+        erasePiece();
+        gPieceX = newX;
+        gPieceY = newY;
+        drawPiece();
+    }
+}
+
 </script>
 
 </head>
-<body style="font-size:40px;">
+<body style="font-size:14px; font-family: Arial, Helvetica, sans-serif;" onkeydown="keyDown(event)">
   <section>
-    <h1>Falling Blocks</h1>
-      <canvas id="gamebox" width="320" height="400" style="border: solid 1px black; width: 320px; height: 400px;"></canvas> 
-  </section>
+    <h1>Falling Blocks - Level 1</h1>
+      <p> Left/right arrows -- move; down arrow -- drop, up arrow -- rotate</p>
+      <table border="1"><tr><td>
+          <canvas id="gamebox" width="320" height="480"></canvas>
+      </table>
+  </section>	
 
 <script type="text/javascript">
 
-var color;
-color = "rgb(255, 0, 0)";
-
-createPiece(4);
-scrambleBoard();
+window.setTimeout(timerCallback, 100);
 
 </script>  
 
