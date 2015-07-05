@@ -88,7 +88,7 @@ function getRando(seedNum) {
     return mt1;
 }
 
-var gBlockSizePixelsX, gBlockSizePixelsY, gBlocksAcross, gBlocksDown, gRng, gBlackCol, gSaturateCol, gEmptyColor, gBlockCount, gBlockRelX, gBlockRelY, gBlockColor, gSquareColor, gInPlay, gCountdown, gPieceX, gPieceY, gCurrentGoodness, gSlowSpeed, gFastSpeed, gSlowLog, gFastLog, gCurrentSpeed, gCurrentPieceSize;
+var gBlockSizePixelsX, gBlockSizePixelsY, gBlocksAcross, gBlocksDown, gRng, gBlackCol, gSaturateCol, gEmptyColor, gBlockCount, gBlockRelX, gBlockRelY, gBlockColor, gSquareColor, gInPlay, gCountdown, gPieceX, gPieceY, gCurrentGoodness, gSlowSpeed, gFastSpeed, gSlowLog, gFastLog, gCurrentSpeed, gCurrentPieceSize, gTimerCount, gPaused, gMustReleaseDownKey, gDownKeyIsDown;
 
 gBlockSizePixelsX = 40;
 gBlockSizePixelsY = 40;
@@ -126,6 +126,13 @@ gFastLog = Math.log(gFastSpeed);
 gCurrentSpeed = gSlowSpeed;
 gCurrentPieceSize = 4;
 
+gTimerCount = 0;
+
+gPaused = false;
+
+gMustReleaseDownKey = false;
+gDownKeyIsDown = false;
+
 function drawBlock(x, y, color) {
     "use strict";
     var canvas, ctx;
@@ -133,11 +140,6 @@ function drawBlock(x, y, color) {
     ctx = canvas.getContext("2d");
     ctx.fillStyle = color;
     ctx.fillRect((x * gBlockSizePixelsX) + 1, (y * gBlockSizePixelsY) + 1, gBlockSizePixelsX - 1, gBlockSizePixelsY - 1);
-}
-
-function eraseBlock(x, y) {
-    "use strict";
-    drawBlock(x, y, gEmptyColor);
 }
 
 function generateColor(blackCol, saturateCol) {
@@ -167,10 +169,10 @@ function generateColor(blackCol, saturateCol) {
             blue = 0;
             if (saturateCol === 0) {
                 red = 255;
-                green = Math.floor(gRng.genrandReal2() * 255);
+                green = Math.floor(gRng.genrandReal2() * 127);
             } else {
                 green = 255;
-                red = Math.floor(gRng.genrandReal2() * 255);
+                red = Math.floor(gRng.genrandReal2() * 127);
             }
         }
     }
@@ -212,6 +214,8 @@ function createPiece(blocks) {
             }
         }
         gBlockColor[i] = generateColor(gBlackCol, gSaturateCol);
+
+        // new block cannot be on top of any existing block in the piece, so we loop until we find a new block and isn't found on the existing block list
         notOk = true;
         stuckLoop = 0;
         while (notOk) {
@@ -312,7 +316,7 @@ function detectCollision(x, y) {
     // return codes:
     // 0 == no collision
     // 1 == colission with game border
-    // 2 == collision with another piece
+    // 2 == collision with a block
     for (i = 0; i < gBlockCount; i = i + 1) {
         if ((gBlockRelY[i] + y) < 0) {
             return 1;
@@ -347,7 +351,7 @@ function findInitialPositionForPiece() {
     }
     gPieceY = -minY;
 
-    // then start in the center and find a place where it fits
+    // then start in the center and move outward to find a place where it fits
     center = Math.floor(gBlocksAcross / 2);
     offset = 0;
     while (offset <= center) {
@@ -419,8 +423,6 @@ function removeCompleteLines() {
     }
 }
 
-var timerCallback;
-
 function findTopGoodness() {
     "use strict";
     var y, offset, x;
@@ -469,7 +471,12 @@ function adjustDifficulty() {
     // speed up slowly; slow down quickly
     if (gCurrentGoodness < goodness) {
         // increasing goodness; change slowly
-        gCurrentGoodness = (gCurrentGoodness * 0.96) + (goodness * 0.04);
+        if (gTimerCount < 300) {
+            // new player -- change *very* slowly
+            gCurrentGoodness = (gCurrentGoodness * 0.995) + (goodness * 0.005);
+        } else {
+            gCurrentGoodness = (gCurrentGoodness * 0.96) + (goodness * 0.04);
+        }
     } else {
         // decreasing goodness; change quickly
         gCurrentGoodness = (gCurrentGoodness * 0.85) + (goodness * 0.15);
@@ -484,34 +491,41 @@ function adjustDifficulty() {
     }
 }
 
-function playGame() {
+
+function transferPieceToBoard() {
     "use strict";
     var i;
 
-    // if we can't move down, we transfer the piece to the board
-    if (detectCollision(gPieceX, gPieceY + 1) === 0) {
-        erasePiece();
-        gPieceY = gPieceY + 1;
-        drawPiece();
-        adjustDifficulty();
-        window.setTimeout(timerCallback, gCurrentSpeed);
-        return;
-    }
     for (i = 0; i < gBlockCount; i = i + 1) {
         gSquareColor[(gBlockRelY[i] + gPieceY) * gBlocksAcross + (gBlockRelX[i] + gPieceX)] = gBlockColor[i];
     }
     removeCompleteLines();
     redrawBoard();
     newPiece();
+    drawPiece();
     adjustDifficulty();
-    window.setTimeout(timerCallback, gCurrentSpeed);
 }
 
-timerCallback = function () {
+function timerCallback() {
     "use strict";
 
     if (gInPlay) {
-        playGame();
+        if (!gPaused) {
+            // if we can't move down, we transfer the piece to the board
+            if (detectCollision(gPieceX, gPieceY + 1) === 0) {
+                erasePiece();
+                gPieceY = gPieceY + 1;
+                drawPiece();
+                adjustDifficulty();
+            } else {
+                transferPieceToBoard();
+                if (gDownKeyIsDown) {
+                    gMustReleaseDownKey = true;
+                }
+            }
+            gTimerCount = gTimerCount + 1;
+        }
+        window.setTimeout(timerCallback, gCurrentSpeed);
     } else {
         gCountdown = gCountdown - 1;
         if (gCountdown > 0) {
@@ -522,10 +536,11 @@ timerCallback = function () {
             gInPlay = true;
             redrawBoard();
             newPiece();
-            window.setTimeout(timerCallback, 1000);
+            drawPiece();
+            window.setTimeout(timerCallback, 3000);
         }
     }
-};
+}
 
 function rotatePiece(a, b) {
     "use strict";
@@ -553,6 +568,14 @@ function keyDown(event) {
     newY = gPieceY;
 
     key = event.keyCode;
+    if (gPaused) {
+        document.getElementById("paused").innerHTML = "";
+        gPaused = false;
+        if (key === 40) {
+            gDownKeyIsDown = true;
+        }
+        return;
+    }
     switch (key) {
     case 37:
         // left
@@ -566,8 +589,8 @@ function keyDown(event) {
         // This is a little nutty. We rotate the piece, see if it collides with anything, if it does we rotate back. If it doesn't, we still rotate back to erase it, then rotate it again, then draw it again.
         rotatePiece(0, 1);
         placeNotFound = true;
-        down = 0; // we allow the piece to move down to rotate it, but not up. we allow 1-piece moves left or right.
-        while (placeNotFound && (down < 4)) {
+        down = 0; // we allow the piece to move down 2 blocks to rotate it, or up 1 block, and we allow 1-block moves left or right.
+        while (placeNotFound && (down < 3)) {
             if (detectCollision(gPieceX, gPieceY + down) === 0) {
                 newX = gPieceX;
                 newY = gPieceY + down;
@@ -585,7 +608,13 @@ function keyDown(event) {
                     }
                 }
             }
+            if (down === -1) {
+                down = 4; // break loop
+            }
             down = down + 1;
+            if (down === 3) {
+                down = -1; // kind of a hack but works -- after checking 0, 1, 2, instead of 3 we go to -1.
+            }
         }
         if (placeNotFound) {
             rotatePiece(0, -1); // just return to original
@@ -607,10 +636,21 @@ function keyDown(event) {
         break;
     case 40:
         // down
-        if (detectCollision(gPieceX, gPieceY + 1) === 0) {
-            movePiece = true;
-            newY = gPieceY + 1;
+        gDownKeyIsDown = true;
+        if (!gMustReleaseDownKey) {
+            if (detectCollision(gPieceX, gPieceY + 1) === 0) {
+                movePiece = true;
+                newY = gPieceY + 1;
+            } else {
+                transferPieceToBoard();
+                gMustReleaseDownKey = true;
+            }
         }
+        break;
+    case 80:
+        // p for pause
+        document.getElementById("paused").innerHTML = "Paused";
+        gPaused = true;
         break;
     }
     if (movePiece) {
@@ -621,19 +661,33 @@ function keyDown(event) {
     }
 }
 
+function keyUp(event) {
+    "use strict";
+    var key;
+
+    event.stopPropagation();
+    key = event.keyCode;
+    if (key === 40) {
+        // down
+        gMustReleaseDownKey = false;
+        gDownKeyIsDown = false;
+    }
+}
+
 </script>
 
 </head>
-<body style="font-size:14px; font-family: Arial, Helvetica, sans-serif;" onkeydown="keyDown(event)">
+<body style="font-size:14px; font-family: Arial, Helvetica, sans-serif;" onkeydown="keyDown(event);" onkeyup="keyUp(event);">
   <section>
-    <h1>Falling Blocks - Level 1</h1>
+    <h1>Falling Blocks</h1>
       <p> Left/right arrows -- move; down arrow -- drop, up arrow -- rotate</p>
       <table border="1"><tr><td>
           <canvas id="gamebox" width="320" height="480"></canvas>
       </table>
-  </section>	
+      <p id="paused"></p>
+  </section>
 
-<script type="text/javascript">
+<script>
 
 window.setTimeout(timerCallback, 100);
 
