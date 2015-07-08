@@ -88,7 +88,9 @@ function getRando(seedNum) {
     return mt1;
 }
 
-var gBlockSizePixelsX, gBlockSizePixelsY, gBlocksAcross, gBlocksDown, gRng, gBlackCol, gSaturateCol, gEmptyColor, gBlockCount, gBlockRelX, gBlockRelY, gBlockColor, gSquareColor, gInPlay, gCountdown, gPieceX, gPieceY, gCurrentGoodness, gSlowSpeed, gFastSpeed, gSlowLog, gFastLog, gCurrentSpeed, gCurrentPieceSize, gTimerCount, gPaused, gMustReleaseDownKey, gDownKeyIsDown;
+// Hokay, that the the preliminaries are out of the way, let's make a game!
+
+var gBlockSizePixelsX, gBlockSizePixelsY, gBlocksAcross, gBlocksDown, gRng, gBlackCol, gSaturateCol, gEmptyColor, gBlockCount, gBlockRelX, gBlockRelY, gBlockColor, gSquareColor, gInPlay, gCountdown, gPieceX, gPieceY, gCurrentGoodness, gSlowSpeed, gFastSpeed, gSlowLog, gFastLog, gCurrentSpeed, gSmallestPiece, gBiggestPiece, gDnomPiecesRandom, gSpeedUpRateNormal, gSpeedUpRateNewPlayer, gSlowDownRate, gNewPlayerIntroductoryPeriodLength, gCurrentPieceSize, gTimerCount, gPaused, gMustReleaseDownKey, gDownKeyIsDown;
 
 gBlockSizePixelsX = 40;
 gBlockSizePixelsY = 40;
@@ -118,7 +120,18 @@ gPieceY = 0;
 gCurrentGoodness = 0;
 
 gSlowSpeed = 5000;
-gFastSpeed = 100;
+gFastSpeed = 125;
+
+gSmallestPiece = 1;
+gBiggestPiece = 5;
+
+gDnomPiecesRandom = 3;
+
+gSpeedUpRateNormal = 0.04;
+gSpeedUpRateNewPlayer = 0.005;
+gSlowDownRate = 0.15;
+
+gNewPlayerIntroductoryPeriodLength = 300;
 
 gSlowLog = Math.log(gSlowSpeed);
 gFastLog = Math.log(gFastSpeed);
@@ -465,32 +478,30 @@ function findGoodness() {
 
 function adjustDifficulty() {
     "use strict";
-    var goodness, piecelimit;
+    var goodness;
 
     goodness = findGoodness();
     // speed up slowly; slow down quickly
     if (gCurrentGoodness < goodness) {
         // increasing goodness; change slowly
-        if (gTimerCount < 300) {
+        if (gTimerCount < gNewPlayerIntroductoryPeriodLength) {
             // new player -- change *very* slowly
-            gCurrentGoodness = (gCurrentGoodness * 0.995) + (goodness * 0.005);
+            gCurrentGoodness = (gCurrentGoodness * (1 - gSpeedUpRateNewPlayer)) + (goodness * gSpeedUpRateNewPlayer);
         } else {
-            gCurrentGoodness = (gCurrentGoodness * 0.96) + (goodness * 0.04);
+            gCurrentGoodness = (gCurrentGoodness * (1 - gSpeedUpRateNormal)) + (goodness * gSpeedUpRateNormal);
         }
     } else {
         // decreasing goodness; change quickly
-        gCurrentGoodness = (gCurrentGoodness * 0.85) + (goodness * 0.15);
+        gCurrentGoodness = (gCurrentGoodness * (1 - gSlowDownRate)) + (goodness * gSlowDownRate);
     }
 
     gCurrentSpeed = Math.exp(((gSlowLog - gFastLog) * (1 - gCurrentGoodness)) + gFastLog);
-    if (Math.floor(gRng.genrandReal2() * 3) === 0) {
-        gCurrentPieceSize = Math.floor(gRng.genrandReal2() * 5) + 1;
+    if (Math.floor(gRng.genrandReal2() * gDnomPiecesRandom) === 0) {
+        gCurrentPieceSize = Math.floor(gRng.genrandReal2() * gBiggestPiece) + gSmallestPiece;
     } else {
-        piecelimit = (goodness * 5) + 1;
-        gCurrentPieceSize = Math.floor(piecelimit);
+        gCurrentPieceSize = Math.floor((goodness * gBiggestPiece) + gSmallestPiece);
     }
 }
-
 
 function transferPieceToBoard() {
     "use strict";
@@ -649,6 +660,11 @@ function keyDown(event) {
         break;
     case 80:
         // p for pause
+        document.getElementById("paused").innerHTML = "Paused";
+        gPaused = true;
+        break;
+    case 32:
+        // space for pause
         document.getElementById("paused").innerHTML = "Paused";
         gPaused = true;
         break;
