@@ -119,8 +119,8 @@ gPieceY = 0;
 
 gCurrentGoodness = 0;
 
-gSlowSpeed = 5000;
-gFastSpeed = 125;
+gSlowSpeed = 4000;
+gFastSpeed = 100;
 
 gSmallestPiece = 1;
 gBiggestPiece = 5;
@@ -131,7 +131,7 @@ gSpeedUpRateNormal = 0.04;
 gSpeedUpRateNewPlayer = 0.005;
 gSlowDownRate = 0.15;
 
-gNewPlayerIntroductoryPeriodLength = 300;
+gNewPlayerIntroductoryPeriodLength = 500;
 
 gSlowLog = Math.log(gSlowSpeed);
 gFastLog = Math.log(gFastSpeed);
@@ -481,6 +481,7 @@ function adjustDifficulty() {
     var goodness;
 
     goodness = findGoodness();
+
     // speed up slowly; slow down quickly
     if (gCurrentGoodness < goodness) {
         // increasing goodness; change slowly
@@ -497,9 +498,9 @@ function adjustDifficulty() {
 
     gCurrentSpeed = Math.exp(((gSlowLog - gFastLog) * (1 - gCurrentGoodness)) + gFastLog);
     if (Math.floor(gRng.genrandReal2() * gDnomPiecesRandom) === 0) {
-        gCurrentPieceSize = Math.floor(gRng.genrandReal2() * gBiggestPiece) + gSmallestPiece;
+        gCurrentPieceSize = Math.floor(gRng.genrandReal2() * (gBiggestPiece - gSmallestPiece + 1)) + gSmallestPiece;
     } else {
-        gCurrentPieceSize = Math.floor((goodness * gBiggestPiece) + gSmallestPiece);
+        gCurrentPieceSize = Math.floor(goodness * (gBiggestPiece - gSmallestPiece + 1)) + gSmallestPiece;
     }
 }
 
@@ -561,8 +562,8 @@ function rotatePiece(a, b) {
     // = ay + ixa + biy + biix
     // = ay-bx + (xa+by)i
     for (i = 0; i < gBlockCount; i = i + 1) {
-        newY = a * gBlockRelY[i] - b * gBlockRelX[i];
-        newX = a * gBlockRelX[i] + b * gBlockRelY[i];
+        newY = (a * gBlockRelY[i]) - (b * gBlockRelX[i]);
+        newX = (a * gBlockRelX[i]) + (b * gBlockRelY[i]);
         gBlockRelY[i] = newY;
         gBlockRelX[i] = newX;
     }
@@ -579,6 +580,11 @@ function keyDown(event) {
     newY = gPieceY;
 
     key = event.keyCode;
+    if ((key === 20) || (key === 16) || (key === 17) || (key === 18) || (key === 13) || (key === 9)) {
+        // filter out alt-tab so people can change applications while game is paused
+        // also filter out buttons like ctrl, shift
+        return;
+    }
     if (gPaused) {
         document.getElementById("paused").innerHTML = "";
         gPaused = false;
