@@ -88,9 +88,9 @@ function getRando(seedNum) {
     return mt1;
 }
 
-// Hokay, that the the preliminaries are out of the way, let's make a game!
+// Hokay, that the preliminaries are out of the way, let's make a game!
 
-var gBlockSizePixelsX, gBlockSizePixelsY, gBlocksAcross, gBlocksDown, gRng, gBlackCol, gSaturateCol, gEmptyColor, gBlockCount, gBlockRelX, gBlockRelY, gBlockColor, gSquareColor, gInPlay, gCountdown, gPieceX, gPieceY, gCurrentGoodness, gSlowSpeed, gFastSpeed, gSlowLog, gFastLog, gCurrentSpeed, gSmallestPiece, gBiggestPiece, gDnomPiecesRandom, gSpeedUpRateNormal, gSpeedUpRateNewPlayer, gSlowDownRate, gNewPlayerIntroductoryPeriodLength, gCurrentPieceSize, gTimerCount, gPaused, gMustReleaseDownKey, gDownKeyIsDown;
+var gBlockSizePixelsX, gBlockSizePixelsY, gBlocksAcross, gBlocksDown, gRng, gBlackCol, gSaturateCol, gEmptyColor, gBlockCount, gBlockRelX, gBlockRelY, gBlockColor, gSquareColor, gInPlay, gCountdown, gPieceX, gPieceY, gCurrentGoodness, gSlowSpeed, gFastSpeed, gSpikeSlowSpeed, gSpikeFastSpeed, gSpikeThreshold, gSlowLog, gFastLog, gSpikeSlowLog, gSpikeFastLog, gCurrentSpeed, gSpikySpeed, gSpikyModeOn, gSpikyTimeBitFlags, gSmallestPiece, gBiggestPiece, gDnomPiecesRandom, gSpeedUpRateNormal, gSpeedUpRateNewPlayer, gSlowDownRate, gNewPlayerIntroductoryPeriodLength, gCurrentPieceSize, gTimerCount, gPaused, gMustReleaseDownKey, gDownKeyIsDown;
 
 gBlockSizePixelsX = 40;
 gBlockSizePixelsY = 40;
@@ -119,8 +119,11 @@ gPieceY = 0;
 
 gCurrentGoodness = 0;
 
-gSlowSpeed = 4000;
+gSlowSpeed = 4500;
 gFastSpeed = 100;
+gSpikeFastSpeed = 80;
+gSpikeSlowSpeed = 150;
+gSpikeThreshold = 0.7; // higher means spike less, lower means spike more
 
 gSmallestPiece = 1;
 gBiggestPiece = 5;
@@ -129,14 +132,21 @@ gDnomPiecesRandom = 3;
 
 gSpeedUpRateNormal = 0.04;
 gSpeedUpRateNewPlayer = 0.005;
-gSlowDownRate = 0.15;
+gSlowDownRate = 0.25;
 
-gNewPlayerIntroductoryPeriodLength = 500;
+gNewPlayerIntroductoryPeriodLength = 3; // 500;
 
 gSlowLog = Math.log(gSlowSpeed);
 gFastLog = Math.log(gFastSpeed);
+gSpikeSlowLog = Math.log(gSpikeSlowSpeed);
+gSpikeFastLog = Math.log(gSpikeFastSpeed);
 
 gCurrentSpeed = gSlowSpeed;
+
+gSpikySpeed = 0;
+gSpikyModeOn = 0;
+gSpikyTimeBitFlags = 6144;
+
 gCurrentPieceSize = 4;
 
 gTimerCount = 0;
@@ -478,10 +488,13 @@ function findGoodness() {
 
 function adjustDifficulty() {
     "use strict";
-    var goodness;
+    var goodness, today, nanoTime;
 
-    goodness = findGoodness();
+    // goodness = findGoodness();
+    // normal speed uses bottom goodness
+    goodness = findBottomGoodness();
 
+    // player not considered an expert yet
     // speed up slowly; slow down quickly
     if (gCurrentGoodness < goodness) {
         // increasing goodness; change slowly
@@ -492,15 +505,36 @@ function adjustDifficulty() {
             gCurrentGoodness = (gCurrentGoodness * (1 - gSpeedUpRateNormal)) + (goodness * gSpeedUpRateNormal);
         }
     } else {
-        // decreasing goodness; change quickly
         gCurrentGoodness = (gCurrentGoodness * (1 - gSlowDownRate)) + (goodness * gSlowDownRate);
     }
-
     gCurrentSpeed = Math.exp(((gSlowLog - gFastLog) * (1 - gCurrentGoodness)) + gFastLog);
     if (Math.floor(gRng.genrandReal2() * gDnomPiecesRandom) === 0) {
         gCurrentPieceSize = Math.floor(gRng.genrandReal2() * (gBiggestPiece - gSmallestPiece + 1)) + gSmallestPiece;
     } else {
         gCurrentPieceSize = Math.floor(goodness * (gBiggestPiece - gSmallestPiece + 1)) + gSmallestPiece;
+    }
+
+    // spiky mode speed uses top goodness (just filters out everything above .25)
+    goodness = findTopGoodness();
+    console.log("goodness " + ctstr(goodness));
+    today = new Date();
+    nanoTime = today.getTime();
+    console.log(nanoTime);
+    /*jslint bitwise: true */
+    if ((nanoTime & gSpikyTimeBitFlags) === gSpikyTimeBitFlags) {
+        /*jslint bitwise: false */
+        if (!gSpikyModeOn) {
+            if (goodness > gSpikeThreshold) {
+                gSpikyModeOn = true;
+                gSpikySpeed = Math.exp(((gSpikeSlowLog - gSpikeFastLog) * (gRng.genrandReal2())) + gSpikeFastLog);
+            } else {
+                console.log("didn't do spiky mode because of threshold " + ctstr(goodness));
+            }
+        }
+    } else {
+        if (gSpikyModeOn) {
+            gSpikyModeOn = false;
+        }
     }
 }
 
@@ -537,7 +571,12 @@ function timerCallback() {
             }
             gTimerCount = gTimerCount + 1;
         }
-        window.setTimeout(timerCallback, gCurrentSpeed);
+        if (gSpikyModeOn) {
+            console.log("spiky mode!");
+            window.setTimeout(timerCallback, gSpikySpeed);
+        } else {
+            window.setTimeout(timerCallback, gCurrentSpeed);
+        }
     } else {
         gCountdown = gCountdown - 1;
         if (gCountdown > 0) {
@@ -580,7 +619,7 @@ function keyDown(event) {
     newY = gPieceY;
 
     key = event.keyCode;
-    if ((key === 20) || (key === 16) || (key === 17) || (key === 18) || (key === 13) || (key === 9)) {
+    if ((key === 20) || (key === 16) || (key === 17) || (key === 18) || (key === 13) || (key === 9) || (key === 91)) {
         // filter out alt-tab so people can change applications while game is paused
         // also filter out buttons like ctrl, shift
         return;
