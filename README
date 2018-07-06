@@ -1,5 +1,7 @@
 ﻿Falling Blocks is a game about falling blocks.
 
+The game was designed as an experiment to play with Mihaly Csikszentmihalyi's theory of "flow". The theory is that there's an optimal "flow" state in between boredom, when you're being challenged too little, and frustration, where you're being challenged too much. The game watches you play, and if you are playing well, it makes the game more challenging. If you are doing poorly, it makes the game less challenging. It has two ways to make the game more challenging: it can make the pieces bigger (by joining more blocks), and it can speed up the game. Conversely, it makes the game easier by making smaller pieces and slowing the game down. Randomness and time delays are also injected into the process to prevent the sense of having direct control over the game difficulty.
+
 You can play the game at:
 
 http://fallingblocks.xyz/
